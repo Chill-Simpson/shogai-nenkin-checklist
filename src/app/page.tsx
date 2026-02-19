@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { db } from '@/lib/firebase';
+import { collection, getDocs, doc, updateDoc, QuerySnapshot, DocumentData } from 'firebase/firestore';
 
 interface Question {
   id: string;
@@ -11,179 +13,61 @@ interface Question {
   checked: boolean;
 }
 
-const initialQuestions: Question[] = [
-  // 病院への質問
-  {
-    id: 'hospital-1',
-    section: '病院（青洲会病院）',
-    title: '診断書の作成依頼',
-    question: '診断書を作成してもらいましたか？',
-    answer: '',
-    checked: false,
-  },
-  {
-    id: 'hospital-2',
-    section: '病院（青洲会病院）',
-    title: '診療記録の取得',
-    question: '過去5年間の診療記録をもらいましたか？',
-    answer: '',
-    checked: false,
-  },
-  {
-    id: 'hospital-3',
-    section: '病院（青洲会病院）',
-    title: '初診病院の情報',
-    question: '35年前の初診病院の名前と所在地：',
-    answer: '',
-    checked: false,
-  },
-  {
-    id: 'hospital-4',
-    section: '病院（青洲会病院）',
-    title: '費用確認',
-    question: '診断書と診療記録の合計費用：',
-    answer: '',
-    checked: false,
-  },
-  {
-    id: 'hospital-5',
-    section: '病院（青洲会病院）',
-    title: '低血糖発作の記録',
-    question: '過去の低血糖発作の記録はありますか？（件数・時期など）',
-    answer: '',
-    checked: false,
-  },
-
-  // 年金事務所への質問
-  {
-    id: 'pension-1',
-    section: '年金事務所',
-    title: '年金加入状況',
-    question: '厚生年金と国民年金のどちらで申請すべきか確認した？',
-    answer: '',
-    checked: false,
-  },
-  {
-    id: 'pension-2',
-    section: '年金事務所',
-    title: '診断書の様式',
-    question: '診断書の様式は何号か？（104号 or 101号）',
-    answer: '',
-    checked: false,
-  },
-  {
-    id: 'pension-3',
-    section: '年金事務所',
-    title: '必要書類',
-    question: '必要な書類の完全なリスト：',
-    answer: '',
-    checked: false,
-  },
-  {
-    id: 'pension-4',
-    section: '年金事務所',
-    title: '初診日の確認',
-    question: '初診日確認に必要な書類は？',
-    answer: '',
-    checked: false,
-  },
-  {
-    id: 'pension-5',
-    section: '年金事務所',
-    title: '窓口訪問予約',
-    question: '予約日時と担当者の連絡先：',
-    answer: '',
-    checked: false,
-  },
-  {
-    id: 'pension-6',
-    section: '年金事務所',
-    title: '認定期間',
-    question: '申請から認定まで何日かかる？',
-    answer: '',
-    checked: false,
-  },
-
-  // 父親さんへの質問
-  {
-    id: 'father-1',
-    section: '父親さん',
-    title: '厚生年金の加入期間',
-    question: '会社員をしていた時期（開始年月～終了年月）：',
-    answer: '',
-    checked: false,
-  },
-  {
-    id: 'father-2',
-    section: '父親さん',
-    title: '国民年金',
-    question: '国民年金に加入していた時期：',
-    answer: '',
-    checked: false,
-  },
-  {
-    id: 'father-3',
-    section: '父親さん',
-    title: '初診日',
-    question: '35年前の初診日と病院名：',
-    answer: '',
-    checked: false,
-  },
-  {
-    id: 'father-4',
-    section: '父親さん',
-    title: '低血糖発作の履歴',
-    question: '低血糖発作の過去の記録（初回・直近・頻度など）：',
-    answer: '',
-    checked: false,
-  },
-  {
-    id: 'father-5',
-    section: '父親さん',
-    title: '合併症',
-    question: '医者から指摘されている合併症は？',
-    answer: '',
-    checked: false,
-  },
-  {
-    id: 'father-6',
-    section: '父親さん',
-    title: '検査値',
-    question: '最近の血糖値・HbA1c・Cペプチド値：',
-    answer: '',
-    checked: false,
-  },
-  {
-    id: 'father-7',
-    section: '父親さん',
-    title: '医療費',
-    question: '月の医療費自己負担額：',
-    answer: '',
-    checked: false,
-  },
-];
-
 export default function Home() {
-  const [questions, setQuestions] = useState<Question[]>(initialQuestions);
+  const [questions, setQuestions] = useState<Question[]>([]);
   const [saved, setSaved] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  // ローカルストレージから読み込み
+  // Firestore から読み込み
   useEffect(() => {
-    const saved = localStorage.getItem('障害年金チェックリスト');
-    if (saved) {
+    const loadQuestions = async () => {
       try {
-        setQuestions(JSON.parse(saved));
-      } catch (e) {
-        console.error('Failed to load from localStorage:', e);
+        console.log('🔄 Firestore から読み込み開始...');
+        console.log('db object:', db);
+
+        // タイムアウト機能付きクエリ（30秒に設定）
+        const timeoutPromise = new Promise<QuerySnapshot<DocumentData>>((_, reject) =>
+          setTimeout(() => reject(new Error('Firestore query timeout after 30s')), 30000)
+        );
+
+        const queryPromise = getDocs(collection(db, 'checklist_items'));
+        const querySnapshot = await Promise.race([queryPromise, timeoutPromise]) as QuerySnapshot<DocumentData>;
+
+        console.log('✅ クエリ成功。取得件数:', querySnapshot.size);
+        const items: Question[] = [];
+        querySnapshot.forEach((docSnapshot) => {
+          items.push(docSnapshot.data() as Question);
+        });
+        // セクション順にソート
+        items.sort((a, b) => a.id.localeCompare(b.id));
+        console.log('📋 アイテム数:', items.length);
+        setQuestions(items);
+      } catch (error) {
+        console.error('❌ Firestore 読み込みエラー:', error);
+        // ダミーデータを表示（デバッグ用）
+        setQuestions([]);
+      } finally {
+        setLoading(false);
       }
-    }
+    };
+
+    loadQuestions();
   }, []);
 
-  // ローカルストレージに保存
-  const handleSave = () => {
-    localStorage.setItem('障害年金チェックリスト', JSON.stringify(questions));
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+  // Firestore に保存
+  const handleSave = async () => {
+    try {
+      for (const question of questions) {
+        await updateDoc(doc(db, 'checklist_items', question.id), {
+          answer: question.answer,
+          checked: question.checked,
+        });
+      }
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (error) {
+      console.error('Failed to save to Firestore:', error);
+    }
   };
 
   // チェックボックスの更新
@@ -209,6 +93,16 @@ export default function Home() {
     },
     {} as Record<string, Question[]>
   );
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4 flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-gray-600 text-lg">データを読み込み中...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
